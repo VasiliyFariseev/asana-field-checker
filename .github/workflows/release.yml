@@ -1,0 +1,24 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Собрать архив
+        run: ./build_release.sh
+      - name: Создать релиз с архивом
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Field Checker ${{ github.ref_name }}
+          files: dist/Field-Checker.zip
+          generate_release_notes: true
+          body: |
+            Скачайте `Field-Checker.zip` из Assets, распакуйте и запустите
+            START_MAC.command / START_WINDOWS.bat. Подробности — в README.
+
+            ⚠️ В архиве рабочий токен Asana: репозиторий должен оставаться приватным.

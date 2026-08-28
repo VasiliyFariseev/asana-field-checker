@@ -1,0 +1,20 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Зависимости
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-tk xvfb
+          python3 -m pip install --quiet --break-system-packages requests
+      - name: Синтаксис
+        run: python3 -m py_compile field_checker.py field_checker_ui.py config.py
+      - name: Смоук окна
+        run: xvfb-run -a python3 tests/smoke_checker.py
