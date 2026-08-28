@@ -24,7 +24,7 @@ def fld(name, value):
 
 
 TASKS_PAGE1 = [
-    {"gid": "1", "name": "Квест 17. Craft", "completed": False,
+    {"gid": "1", "name": "Квест 17. Craft", "completed": False, "num_subtasks": 2,
      "permalink_url": "https://app.asana.com/t/1",
      "assignee": {"name": "Юлия Титова"},
      "memberships": [{"project": {"gid": "12040152"}, "section": {"name": "Проверить в Content"}}],
@@ -39,12 +39,34 @@ TASKS_PAGE1 = [
      "assignee": None,
      "memberships": [{"project": {"gid": "12040152"}, "section": {"name": "Бэклог"}}],
      "custom_fields": [fld("FD:Version", None), fld("fd milestone", "")]},
-    {"gid": "4", "name": "Готовая задача", "completed": True,
+    {"gid": "4", "name": "Готовая задача", "completed": True, "num_subtasks": 1,
      "permalink_url": "https://app.asana.com/t/4",
      "assignee": {"name": "Игорь"},
      "memberships": [],
      "custom_fields": [fld("FD: Version", ""), fld("FD Milestone", "Submit")]},
 ]
+SUBTASKS = {
+    "1": [
+        {"gid": "1a", "name": "Сабтаск А", "completed": False, "num_subtasks": 1,
+         "permalink_url": "https://app.asana.com/t/1a",
+         "assignee": {"name": "Пётр"}, "memberships": [],
+         "custom_fields": [fld("FD: Version", "1005")]},
+        {"gid": "1c", "name": "Закрытый сабтаск", "completed": True, "num_subtasks": 0,
+         "permalink_url": "https://app.asana.com/t/1c",
+         "assignee": None, "memberships": [],
+         "custom_fields": [fld("FD: Version", "1005"), fld("FD Milestone", "Submit")]},
+    ],
+    "1a": [
+        {"gid": "1b", "name": "Вложенный сабтаск", "completed": False, "num_subtasks": 0,
+         "permalink_url": "https://app.asana.com/t/1b",
+         "assignee": None, "memberships": [], "custom_fields": []},
+    ],
+    "4": [
+        {"gid": "4a", "name": "Хвост под закрытой", "completed": False, "num_subtasks": 0,
+         "permalink_url": "https://app.asana.com/t/4a",
+         "assignee": None, "memberships": [], "custom_fields": []},
+    ],
+}
 TASKS_PAGE2 = [
     {"gid": "5", "name": "Квест 55. Плитки", "completed": False,
      "permalink_url": "https://app.asana.com/t/5",
@@ -63,6 +85,9 @@ def fake_get(url, headers=None, params=None, **kw):
         if params and params.get("offset"):
             return Resp({"data": TASKS_PAGE2, "next_page": None})
         return Resp({"data": TASKS_PAGE1, "next_page": {"offset": "abc"}})
+    if "/subtasks" in url:
+        gid = url.split("/tasks/")[1].split("/")[0]
+        return Resp({"data": SUBTASKS.get(gid, []), "next_page": None})
     return Resp({}, 404)
 
 
@@ -110,21 +135,29 @@ assert core_ns["missing_field_warnings"]([{"x": 1}]) == []
 assert core_ns["missing_field_warnings"]([]) == [], "без задач не пугаем"
 print("диагностика полей OK")
 
-# скан: пагинация, пропуск завершённых, секции, счётчики
+# скан: пагинация, пропуск завершённых, секции, счётчики, сабтаски
 rows = core_ns["scan"](["12040152"])
-assert len(rows) == 4, [r["name"] for r in rows]           # без завершённой
-assert {r["category"] for r in rows} == {"both", "partial", "none"}
+names = [r["name"] for r in rows]
+assert len(rows) == 7, names                               # 4 задачи + 3 сабтаска
+assert "↳ Сабтаск А" in names and "↳ ↳ Вложенный сабтаск" in names, names
+assert "↳ Хвост под закрытой" in names, "сабтаски закрытой задачи проверяются"
+assert "Закрытый сабтаск" not in " ".join(names), "закрытый сабтаск пропущен"
+sub_a = next(r for r in rows if r["name"] == "↳ Сабтаск А")
+assert sub_a["section"] == "Проверить в Content", "секция наследуется"
+assert sub_a["category"] == "partial"
 assert rows[0]["section"] == "Проверить в Content"
-assert rows[2]["assignee"] == "—"
 c = core_ns["counts"](rows)
-assert c == {"both": 1, "partial": 2, "none": 1}, c
+assert c == {"both": 1, "partial": 3, "none": 3}, c
 rows_all = core_ns["scan"](["12040152"], include_completed=True)
-assert len(rows_all) == 5, "завершённые по флагу"
+assert len(rows_all) == 9, "завершённые по флагу (и их сабтаски)"
+rows_flat = core_ns["scan"](["12040152"], include_subtasks=False)
+assert len(rows_flat) == 4, [r["name"] for r in rows_flat]
+assert core_ns["counts"](rows_flat) == {"both": 1, "partial": 2, "none": 1}
 print("скан OK ->", c)
 
 # отчёт для чата
 text = core_ns["report_text"](rows, "partial")
-assert "только одно" in text and "2 шт." in text, text
+assert "только одно" in text and "3 шт." in text, text
 assert "Квест 13" in text and "нет: FD Milestone" in text, text
 assert "https://app.asana.com/t/2" in text
 assert "Квест 17" not in text, "оба заполнены — не в этом списке"
@@ -164,12 +197,12 @@ print("UI IMPORT OK")
 import tkinter.ttk as ttk_mod
 assert ttk_mod.Style(root).lookup("Treeview", "background") == ns["UI_FIELD"]
 
-# скан из окна: по умолчанию показываются «только одно»
+# скан из окна: по умолчанию показываются «только одно» (с сабтасками)
 ns["projects_var"].set("12040152")
 ns["run_scan"]()
 shown = ns["view"].get_children()
-assert len(shown) == 2, shown
-assert "только одно: 2" in ns["status_var"].get(), ns["status_var"].get()
+assert len(shown) == 3, shown
+assert "только одно: 3" in ns["status_var"].get(), ns["status_var"].get()
 tags = {ns["view"].item(i, "tags")[0] for i in shown}
 assert tags == {"partial"}, tags
 print("окно: проблемные OK")
@@ -177,13 +210,24 @@ print("окно: проблемные OK")
 # переключение корзин
 ns["show_var"].set("все задачи")
 ns["render"]()
-assert len(ns["view"].get_children()) == 4
+assert len(ns["view"].get_children()) == 7
 ns["show_var"].set("✗ оба поля пустые")
 ns["render"]()
 rows_shown = ns["view"].get_children()
-assert len(rows_shown) == 1
-assert ns["view"].item(rows_shown[0], "values")[0] == "Туториал на сборщик"
+shown_names = {ns["view"].item(i, "values")[0] for i in rows_shown}
+assert len(rows_shown) == 3, shown_names
+assert "Туториал на сборщик" in shown_names, shown_names
+assert "↳ ↳ Вложенный сабтаск" in shown_names, shown_names
 print("окно: переключение корзин OK")
+
+# галочка «с сабтасками» выключена — только задачи проекта
+ns["subtasks_var"].set(False)
+ns["show_var"].set("все задачи")
+ns["run_scan"]()
+assert len(ns["view"].get_children()) == 4, ns["view"].get_children()
+ns["subtasks_var"].set(True)
+ns["run_scan"]()
+print("окно: галочка сабтасков OK")
 
 # копирование отчёта и открытие задачи
 opened = []

@@ -17,7 +17,7 @@ import webbrowser
 from tkinter import ttk, messagebox
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOL_VERSION = "1.1"
+TOOL_VERSION = "1.2"
 
 
 def _die(text: str):
@@ -83,6 +83,9 @@ scan_btn.pack(side="left")
 completed_var = tk.BooleanVar(value=False)
 ttk.Checkbutton(row1, text="включая завершённые",
                 variable=completed_var).pack(side="left", padx=10)
+subtasks_var = tk.BooleanVar(value=True)
+ttk.Checkbutton(row1, text="с сабтасками",
+                variable=subtasks_var).pack(side="left")
 
 row2 = ttk.Frame(frame)
 row2.pack(fill="x", pady=(8, 0))
@@ -178,6 +181,7 @@ def run_scan():
     def job():
         try:
             rows, err = CORE.scan(gids, include_completed=completed_var.get(),
+                                  include_subtasks=subtasks_var.get(),
                                   progress=progress), ""
         except SystemExit as exc:
             rows, err = [], str(exc)

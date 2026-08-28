@@ -13,6 +13,7 @@
     python3 field_checker.py --projects "gid1,gid2"   # несколько проектов
     python3 field_checker.py --show all               # partial | none | both | all
     python3 field_checker.py --completed              # включая завершённые
+    python3 field_checker.py --no-subtasks            # не спускаться в сабтаски
 """
 import argparse
 import importlib.util
@@ -28,7 +29,7 @@ import requests  # noqa: E402  (config уже настроил сессию с �
 BASE = config.ASANA_BASE
 HEADERS = config.asana_headers()
 
-TASK_FIELDS = ("name,completed,permalink_url,assignee.name,"
+TASK_FIELDS = ("name,completed,permalink_url,assignee.name,num_subtasks,"
                "memberships.(project.gid|section.name),"
                "custom_fields.(name|display_value)")
 
@@ -61,6 +62,22 @@ def project_tasks(gid: str, progress=None) -> list:
         out.extend(payload.get("data", []))
         if progress:
             progress(len(out))
+        offset = (payload.get("next_page") or {}).get("offset")
+        if not offset:
+            return out
+
+
+def task_subtasks(gid: str) -> list:
+    """Сабтаски задачи, с теми же полями (постранично)."""
+    out, offset = [], None
+    while True:
+        params = {"opt_fields": TASK_FIELDS, "limit": 100}
+        if offset:
+            params["offset"] = offset
+        resp = requests.get(f"{BASE}/tasks/{gid}/subtasks", headers=HEADERS, params=params)
+        resp.raise_for_status()
+        payload = resp.json()
+        out.extend(payload.get("data", []))
         offset = (payload.get("next_page") or {}).get("offset")
         if not offset:
             return out
@@ -131,10 +148,41 @@ def task_section(task: dict, project_gid: str) -> str:
     return ""
 
 
-def scan(project_gids: list, include_completed: bool = False, progress=None) -> list:
-    """[{project, project_name, section, name, assignee, a, b, category, url}]"""
+def scan(project_gids: list, include_completed: bool = False, progress=None,
+         include_subtasks: bool = True) -> list:
+    """[{project, project_name, section, name, assignee, a, b, category, url}]
+
+    include_subtasks — спускаться в сабтаски (и сабтаски сабтасков): в строке
+    имя получает префикс «↳ », секция наследуется от верхней задачи. У
+    завершённой родительской задачи сабтаски всё равно проверяются — среди
+    них могут прятаться незакрытые."""
     rows = []
     LAST_SCAN["field_names"] = set()
+    seen_subs = {"n": 0}
+
+    def add(task, project, gid, section, depth):
+        if not (task.get("completed") and not include_completed):
+            info = classify(task)
+            rows.append({
+                "project": gid,
+                "project_name": project["name"],
+                "section": section,
+                "name": "↳ " * depth + (task.get("name") or "(без имени)"),
+                "assignee": ((task.get("assignee") or {}).get("name") or "—"),
+                "a": info["a"] or "—",
+                "b": info["b"] or "—",
+                "category": info["category"],
+                "missing": info["missing"],
+                "url": task.get("permalink_url") or "",
+            })
+        if include_subtasks and (task.get("num_subtasks") or 0) > 0:
+            for sub in task_subtasks(task["gid"]):
+                seen_subs["n"] += 1
+                if progress and seen_subs["n"] % 20 == 0:
+                    progress(f"Проект «{project['name']}»: "
+                             f"сабтасков прочитано {seen_subs['n']}...")
+                add(sub, project, gid, section, depth + 1)
+
     for gid in project_gids:
         project = get_project(gid)
         if progress:
@@ -143,21 +191,7 @@ def scan(project_gids: list, include_completed: bool = False, progress=None) -> 
             gid, progress=(lambda n, p=project: progress(
                 f"Проект «{p['name']}»: прочитано {n}...")) if progress else None)
         for t in tasks:
-            if t.get("completed") and not include_completed:
-                continue
-            info = classify(t)
-            rows.append({
-                "project": gid,
-                "project_name": project["name"],
-                "section": task_section(t, gid),
-                "name": t.get("name") or "(без имени)",
-                "assignee": ((t.get("assignee") or {}).get("name") or "—"),
-                "a": info["a"] or "—",
-                "b": info["b"] or "—",
-                "category": info["category"],
-                "missing": info["missing"],
-                "url": t.get("permalink_url") or "",
-            })
+            add(t, project, gid, task_section(t, gid), 0)
     return rows
 
 
@@ -209,10 +243,14 @@ def main():
                     choices=("partial", "none", "both", "all"),
                     help="какую корзину печатать (по умолчанию partial)")
     ap.add_argument("--completed", action="store_true", help="включая завершённые")
+    ap.add_argument("--no-subtasks", action="store_true",
+                    help="не спускаться в сабтаски")
     args = ap.parse_args()
 
     gids = [g.strip() for g in args.projects.split(",") if g.strip()]
-    rows = scan(gids, include_completed=args.completed, progress=lambda t: print(t))
+    rows = scan(gids, include_completed=args.completed,
+                include_subtasks=not args.no_subtasks,
+                progress=lambda t: print(t))
     c = counts(rows)
     for warn in missing_field_warnings(rows):
         print(warn)
