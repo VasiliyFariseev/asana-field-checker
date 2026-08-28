@@ -17,7 +17,7 @@ import webbrowser
 from tkinter import ttk, messagebox
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOL_VERSION = "1.2"
+TOOL_VERSION = "1.3"
 
 
 def _die(text: str):
@@ -70,6 +70,50 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
+# ── буфер обмена: правый клик и русская раскладка ──
+CLIP_KEYS = {"м": "<<Paste>>", "с": "<<Copy>>", "ч": "<<Cut>>", "ф": "<<SelectAll>>"}
+
+
+def clip_hotkey(event):
+    """Cmd/Ctrl+V в русской раскладке шлёт «м», и Tk сам такое не понимает."""
+    virt = CLIP_KEYS.get((event.char or "").lower())
+    if virt and isinstance(event.widget, (tk.Entry, ttk.Entry, tk.Text)):
+        event.widget.event_generate(virt)
+        return "break"
+    return None
+
+
+def entry_menu(event):
+    """Правый клик по полю ввода — меню Вставить/Копировать/Очистить."""
+    w = event.widget
+    menu = tk.Menu(root, tearoff=0, bg=UI_PANEL, fg=UI_FG,
+                   activebackground=UI_SELECT, activeforeground=UI_FG)
+    for label, virt in (("Вставить", "<<Paste>>"), ("Копировать", "<<Copy>>"),
+                        ("Вырезать", "<<Cut>>"), ("Выделить всё", "<<SelectAll>>")):
+        menu.add_command(label=label, command=lambda v=virt: w.event_generate(v))
+    menu.add_separator()
+    menu.add_command(label="Очистить поле",
+                     command=lambda: w.delete(0, "end") if hasattr(w, "delete") else None)
+    try:
+        w.focus_set()
+        menu.tk_popup(event.x_root, event.y_root)
+    finally:
+        menu.grab_release()
+    return "break"
+
+
+for _seq in ("<Command-KeyPress>", "<Control-KeyPress>"):
+    try:
+        root.bind_all(_seq, clip_hotkey)
+    except tk.TclError:
+        pass
+for _seq in ("<Button-3>", "<Button-2>", "<Control-Button-1>"):
+    for _cls in ("TEntry", "Entry"):
+        try:
+            root.bind_class(_cls, _seq, entry_menu)
+        except tk.TclError:
+            pass
+
 frame = ttk.Frame(root, padding=12)
 frame.pack(fill="both", expand=True)
 
@@ -77,7 +121,8 @@ row1 = ttk.Frame(frame)
 row1.pack(fill="x")
 ttk.Label(row1, text="Проекты Asana (GID через запятую):").pack(side="left")
 projects_var = tk.StringVar(value=CORE.config.DEFAULT_PROJECTS)
-ttk.Entry(row1, textvariable=projects_var, width=40).pack(side="left", padx=6)
+projects_entry = ttk.Entry(row1, textvariable=projects_var, width=40)
+projects_entry.pack(side="left", padx=6)
 scan_btn = ttk.Button(row1, text="🔎 Проверить")
 scan_btn.pack(side="left")
 completed_var = tk.BooleanVar(value=False)

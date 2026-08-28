@@ -243,6 +243,19 @@ ns["open_task"]()
 assert opened and opened[0].startswith("https://app.asana.com/t/"), opened
 print("копирование и открытие OK")
 
+# вставка из буфера в русской раскладке: Cmd+V шлёт «м»
+root.clipboard_clear()
+root.clipboard_append("1215934810295116")
+ns["projects_var"].set("")
+ns["projects_entry"].focus_set()
+fake_ev = types.SimpleNamespace(char="м", widget=ns["projects_entry"])
+assert ns["clip_hotkey"](fake_ev) == "break"
+root.update()
+assert ns["projects_var"].get() == "1215934810295116", ns["projects_var"].get()
+assert ns["clip_hotkey"](types.SimpleNamespace(char="q", widget=ns["projects_entry"])) is None
+assert callable(ns["entry_menu"])
+print("вставка в русской раскладке OK")
+
 # кривый GID — статус, не падение
 ns["projects_var"].set("не число")
 ns["run_scan"]()
