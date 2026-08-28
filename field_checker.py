@@ -84,10 +84,18 @@ def task_subtasks(gid: str) -> list:
             return out
 
 
+# Кириллические буквы, неотличимые на глаз от латинских: в Asana встречаются
+# поля вроде «FD: Versiоn», где «о» — русская (создатель переключил раскладку
+# посреди слова). Реальный случай из проекта EXP51.
+HOMOGLYPHS = str.maketrans("аеорсух", "aeopcyx")
+
+
 def norm_name(name: str) -> str:
-    """«FD: Version» → «fdversion»: сравниваем без регистра, пробелов и знаков.
-    Так «FD:Version», «FD Version» и «FD: Version» — одно и то же поле."""
-    return "".join(ch for ch in (name or "").lower() if ch.isalnum())
+    """«FD: Version» → «fdversion»: сравниваем без регистра, пробелов и знаков,
+    а кириллические двойники (а, е, о, р, с, у, х) приводим к латинице.
+    Так «FD:Version», «FD Version» и «FD: Versiоn» — одно и то же поле."""
+    return "".join(ch for ch in (name or "").lower().translate(HOMOGLYPHS)
+                   if ch.isalnum())
 
 
 LAST_SCAN = {"field_names": set()}     # какие поля реально пришли из Asana

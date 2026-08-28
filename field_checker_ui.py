@@ -17,7 +17,7 @@ import webbrowser
 from tkinter import ttk, messagebox
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOL_VERSION = "1.4"
+TOOL_VERSION = "1.5"
 
 
 def _die(text: str):

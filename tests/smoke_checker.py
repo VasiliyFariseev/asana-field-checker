@@ -120,6 +120,16 @@ assert info_twin["category"] == "both", info_twin
 # вариации пунктуации в config-имени тоже находятся
 assert core_ns["field_value"]({"custom_fields": [fld("FD Version", "1005")]},
                               "FD: Version") == "1005"
+# кириллические двойники: «FD: Versiоn» с русской «о» (реальный случай EXP51)
+cyr_task = {"custom_fields": [
+    fld("FD: Reported Version", "999"),
+    fld("FD: Versiоn", "1010"),   # о — кириллическая «о»
+    fld("FD Milestone", "Submit"),
+]}
+info_cyr = core_ns["classify"](cyr_task)
+assert info_cyr["a"] == "1010", info_cyr   # именно Versiоn, не Reported Version
+assert info_cyr["category"] == "both", info_cyr
+assert core_ns["norm_name"]("FD: Versiоn") == "fdversion"
 # похожие, но чужие поля не подхватываются
 assert core_ns["field_value"]({"custom_fields": [fld("FD QA: Weekly", "x")]},
                               "FD: Version") == ""
