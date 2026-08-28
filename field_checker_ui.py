@@ -17,7 +17,7 @@ import webbrowser
 from tkinter import ttk, messagebox
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOL_VERSION = "1.3"
+TOOL_VERSION = "1.4"
 
 
 def _die(text: str):
@@ -172,7 +172,8 @@ view.pack(fill="both", expand=True, pady=(10, 0))
 status_var = tk.StringVar(value="Нажмите «Проверить» — задачи прочитаются из Asana.")
 ttk.Label(frame, textvariable=status_var, foreground=UI_MUTED,
           wraplength=1100, justify="left").pack(anchor="w", pady=(8, 0))
-ttk.Label(frame, text="Двойной клик по строке открывает задачу в Asana",
+ttk.Label(frame, text="Двойной клик — открыть задачу в Asana · правый клик — "
+                      "все поля задачи, как их отдаёт API (для отладки)",
           foreground=UI_MUTED).pack(anchor="w")
 
 ROWS: list = []                       # результат последнего скана
@@ -252,6 +253,31 @@ def copy_report():
     status_var.set("Список скопирован — можно вставить в чат")
 
 
+def show_row_fields(event=None):
+    """Правый клик по строке: все кастом-поля задачи из API + сразу в буфер."""
+    iid = view.identify_row(event.y) if event is not None else ""
+    if iid:
+        view.selection_set(iid)
+    sel = view.selection()
+    if not sel:
+        return
+    row = ROWS[int(sel[0][1:])]
+    text = CORE.task_fields_text(row)
+    root.clipboard_clear()
+    root.clipboard_append(text)
+    win = tk.Toplevel(root)
+    win.title("Поля задачи (API)")
+    win.configure(bg=UI_BG)
+    win.geometry("760x420")
+    box = tk.Text(win, bg=UI_FIELD, fg=UI_FG, insertbackground=UI_FG,
+                  wrap="word", padx=10, pady=10, borderwidth=0)
+    box.insert("1.0", text + "\n\n(уже скопировано в буфер — можно вставить в чат)")
+    box.configure(state="disabled")
+    box.pack(fill="both", expand=True, padx=8, pady=8)
+    ttk.Button(win, text="Закрыть", command=win.destroy).pack(pady=(0, 8))
+    return win
+
+
 def open_task(_event=None):
     for iid in view.selection():
         url = ROW_URLS.get(iid)
@@ -263,6 +289,11 @@ scan_btn.configure(command=run_scan)
 copy_btn.configure(command=copy_report)
 show_box.bind("<<ComboboxSelected>>", lambda _e: render())
 view.bind("<Double-1>", open_task)
+for _seq in ("<Button-3>", "<Button-2>", "<Control-Button-1>"):
+    try:
+        view.bind(_seq, show_row_fields)
+    except tk.TclError:
+        pass
 
 if __name__ == "__main__":
     root.mainloop()

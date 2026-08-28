@@ -125,6 +125,22 @@ assert core_ns["field_value"]({"custom_fields": [fld("FD QA: Weekly", "x")]},
                               "FD: Version") == ""
 print("тёзки и пунктуация OK")
 
+# display_value пуст, но поле заполнено сырыми значениями
+fd = core_ns["field_display"]
+assert fd({"display_value": "", "number_value": 1011.0}) == "1011"
+assert fd({"display_value": None, "number_value": 10.5}) == "10.5"
+assert fd({"display_value": "", "enum_value": {"name": "Code Freeze"}}) == "Code Freeze"
+assert fd({"display_value": "", "multi_enum_values": [{"name": "A"}, {"name": "B"}]}) == "A, B"
+assert fd({"display_value": "", "text_value": " 1011 "}) == "1011"
+assert fd({"display_value": "", "date_value": {"date": "2026-09-01"}}) == "2026-09-01"
+assert fd({"display_value": "1012", "number_value": 9}) == "1012", "display_value главнее"
+assert fd({"name": "x"}) == ""
+num_task = {"custom_fields": [
+    {"name": "FD: Version", "display_value": "", "number_value": 1011.0},
+    fld("FD Milestone", "Submit")]}
+assert core_ns["classify"](num_task)["a"] == "1011"
+print("сырые значения OK")
+
 # диагностика: поле не нашлось нигде → предупреждение с реальными именами
 core_ns["LAST_SCAN"]["field_names"] = {"FD QA: Weekly", "FD Milestone", "Prio"}
 warns = core_ns["missing_field_warnings"]([{"x": 1}])
@@ -154,6 +170,14 @@ rows_flat = core_ns["scan"](["12040152"], include_subtasks=False)
 assert len(rows_flat) == 4, [r["name"] for r in rows_flat]
 assert core_ns["counts"](rows_flat) == {"both": 1, "partial": 2, "none": 1}
 print("скан OK ->", c)
+
+# рентген полей строки
+assert rows[0]["fields_raw"], rows[0]
+dump = core_ns["task_fields_text"](rows[0])
+assert "FD: Version" in dump and "FD Milestone" in dump, dump
+dump_empty = core_ns["task_fields_text"]({"name": "x", "fields_raw": []})
+assert "ни одного кастом-поля" in dump_empty
+print("рентген полей OK")
 
 # отчёт для чата
 text = core_ns["report_text"](rows, "partial")
@@ -242,6 +266,18 @@ ns["view"].selection_set(first)
 ns["open_task"]()
 assert opened and opened[0].startswith("https://app.asana.com/t/"), opened
 print("копирование и открытие OK")
+
+# правый клик по строке — окно со всеми полями + буфер
+ns["show_var"].set("все задачи")
+ns["render"]()
+first = ns["view"].get_children()[0]
+ns["view"].selection_set(first)
+win = ns["show_row_fields"]()
+assert win is not None
+clip = root.clipboard_get()
+assert "по данным API Asana" in clip and "FD" in clip, clip
+win.destroy()
+print("рентген из окна OK")
 
 # вставка из буфера в русской раскладке: Cmd+V шлёт «м»
 root.clipboard_clear()

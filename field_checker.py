@@ -31,7 +31,8 @@ HEADERS = config.asana_headers()
 
 TASK_FIELDS = ("name,completed,permalink_url,assignee.name,num_subtasks,"
                "memberships.(project.gid|section.name),"
-               "custom_fields.(name|display_value)")
+               "custom_fields.(name|display_value|type|text_value|number_value|"
+               "enum_value.name|multi_enum_values.name|date_value)")
 
 CATEGORY_TITLES = {
     "both": "✓ оба заполнены",
@@ -92,6 +93,29 @@ def norm_name(name: str) -> str:
 LAST_SCAN = {"field_names": set()}     # какие поля реально пришли из Asana
 
 
+def field_display(f: dict) -> str:
+    """Значение поля. Сначала display_value, а если он пуст — сырые значения:
+    у некоторых типов полей display_value бывает пустым при заполненном поле."""
+    value = (f.get("display_value") or "").strip()
+    if value:
+        return value
+    if (f.get("text_value") or "").strip():
+        return f["text_value"].strip()
+    if f.get("number_value") is not None:
+        n = f["number_value"]
+        return str(int(n)) if isinstance(n, float) and n.is_integer() else str(n)
+    enum = f.get("enum_value") or {}
+    if enum.get("name"):
+        return enum["name"]
+    multi = [m.get("name") for m in (f.get("multi_enum_values") or []) if m.get("name")]
+    if multi:
+        return ", ".join(multi)
+    date = f.get("date_value") or {}
+    if date.get("date"):
+        return date["date"]
+    return ""
+
+
 def field_value(task: dict, field_name: str) -> str:
     """Значение кастом-поля по имени.
 
@@ -108,7 +132,7 @@ def field_value(task: dict, field_name: str) -> str:
         name = norm_name(raw)
         if not name:
             continue
-        value = (f.get("display_value") or "").strip()
+        value = field_display(f)
         if name == want:
             exact.append(value)
         elif want in name:
@@ -174,6 +198,9 @@ def scan(project_gids: list, include_completed: bool = False, progress=None,
                 "category": info["category"],
                 "missing": info["missing"],
                 "url": task.get("permalink_url") or "",
+                "fields_raw": [((f.get("name") or "").strip(), field_display(f),
+                                f.get("type") or "")
+                               for f in task.get("custom_fields") or []],
             })
         if include_subtasks and (task.get("num_subtasks") or 0) > 0:
             for sub in task_subtasks(task["gid"]):
@@ -193,6 +220,18 @@ def scan(project_gids: list, include_completed: bool = False, progress=None,
         for t in tasks:
             add(t, project, gid, task_section(t, gid), 0)
     return rows
+
+
+def task_fields_text(row: dict) -> str:
+    """Все кастом-поля задачи как их отдал API — для отладки «поле есть,
+    а инструмент не видит»."""
+    lines = [f"Поля задачи «{row['name']}» по данным API Asana:"]
+    raw = row.get("fields_raw") or []
+    if not raw:
+        lines.append("  (API не вернул ни одного кастом-поля)")
+    for name, value, ftype in raw:
+        lines.append(f"  • {name} [{ftype}] = {value or '(пусто)'}")
+    return "\n".join(lines)
 
 
 def missing_field_warnings(rows: list) -> list:
