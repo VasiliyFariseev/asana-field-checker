@@ -83,6 +83,33 @@ info4 = core_ns["classify"](TASKS_PAGE1[3])
 assert info4["category"] == "partial" and info4["missing"] == ["FD: Version"], info4
 print("классификация OK")
 
+# тёзки полей: пустой дубль не должен затирать заполненное поле
+twin_task = {"custom_fields": [
+    fld("FD: Version", ""),            # пустой тёзка идёт ПЕРВЫМ
+    fld("FD:Version", "1010"),         # настоящее значение, имя без пробела
+    fld("FD Milestone", "Submit"),
+]}
+info_twin = core_ns["classify"](twin_task)
+assert info_twin["a"] == "1010", info_twin
+assert info_twin["category"] == "both", info_twin
+# вариации пунктуации в config-имени тоже находятся
+assert core_ns["field_value"]({"custom_fields": [fld("FD Version", "1005")]},
+                              "FD: Version") == "1005"
+# похожие, но чужие поля не подхватываются
+assert core_ns["field_value"]({"custom_fields": [fld("FD QA: Weekly", "x")]},
+                              "FD: Version") == ""
+print("тёзки и пунктуация OK")
+
+# диагностика: поле не нашлось нигде → предупреждение с реальными именами
+core_ns["LAST_SCAN"]["field_names"] = {"FD QA: Weekly", "FD Milestone", "Prio"}
+warns = core_ns["missing_field_warnings"]([{"x": 1}])
+assert len(warns) == 1 and "FD: Version" in warns[0], warns
+assert "FD QA: Weekly" in warns[0], warns
+core_ns["LAST_SCAN"]["field_names"] = {"FD: Version", "FD Milestone"}
+assert core_ns["missing_field_warnings"]([{"x": 1}]) == []
+assert core_ns["missing_field_warnings"]([]) == [], "без задач не пугаем"
+print("диагностика полей OK")
+
 # скан: пагинация, пропуск завершённых, секции, счётчики
 rows = core_ns["scan"](["12040152"])
 assert len(rows) == 4, [r["name"] for r in rows]           # без завершённой

@@ -17,7 +17,7 @@ import webbrowser
 from tkinter import ttk, messagebox
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOL_VERSION = "1.0"
+TOOL_VERSION = "1.1"
 
 
 def _die(text: str):
@@ -153,9 +153,13 @@ def render():
         ROW_URLS[iid] = r["url"]
         shown += 1
     c = CORE.counts(ROWS)
-    status_var.set(f"Всего задач: {len(ROWS)} · ✓ оба: {c['both']} · "
-                   f"⚠ только одно: {c['partial']} · ✗ пустые: {c['none']} · "
-                   f"показано: {shown}")
+    text = (f"Всего задач: {len(ROWS)} · ✓ оба: {c['both']} · "
+            f"⚠ только одно: {c['partial']} · ✗ пустые: {c['none']} · "
+            f"показано: {shown}")
+    warnings = CORE.missing_field_warnings(ROWS)
+    if warnings:
+        text += "\n" + "\n".join(warnings)
+    status_var.set(text)
     copy_btn.configure(state="normal" if ROWS else "disabled")
 
 

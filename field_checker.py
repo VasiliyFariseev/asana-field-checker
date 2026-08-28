@@ -66,13 +66,42 @@ def project_tasks(gid: str, progress=None) -> list:
             return out
 
 
+def norm_name(name: str) -> str:
+    """«FD: Version» → «fdversion»: сравниваем без регистра, пробелов и знаков.
+    Так «FD:Version», «FD Version» и «FD: Version» — одно и то же поле."""
+    return "".join(ch for ch in (name or "").lower() if ch.isalnum())
+
+
+LAST_SCAN = {"field_names": set()}     # какие поля реально пришли из Asana
+
+
 def field_value(task: dict, field_name: str) -> str:
-    """Значение кастом-поля по имени: без учёта регистра, по вхождению."""
-    want = field_name.strip().lower()
+    """Значение кастом-поля по имени.
+
+    В проектах бывает несколько полей с похожими именами («FD: Version» и,
+    скажем, «FD: Version (old)») — поэтому: сначала точное совпадение
+    нормализованного имени, потом по вхождению; среди совпавших предпочитаем
+    поле с НЕПУСТЫМ значением, а не первое попавшееся."""
+    want = norm_name(field_name)
+    exact, contains = [], []
     for f in task.get("custom_fields") or []:
-        name = (f.get("name") or "").strip().lower()
-        if name == want or want in name:
-            return (f.get("display_value") or "").strip()
+        raw = (f.get("name") or "").strip()
+        if raw:
+            LAST_SCAN["field_names"].add(raw)
+        name = norm_name(raw)
+        if not name:
+            continue
+        value = (f.get("display_value") or "").strip()
+        if name == want:
+            exact.append(value)
+        elif want in name:
+            contains.append(value)
+    for bucket in (exact, contains):
+        for value in bucket:
+            if value:
+                return value
+        if bucket:
+            return ""                  # поле есть, но пустое во всех тёзках
     return ""
 
 
@@ -105,6 +134,7 @@ def task_section(task: dict, project_gid: str) -> str:
 def scan(project_gids: list, include_completed: bool = False, progress=None) -> list:
     """[{project, project_name, section, name, assignee, a, b, category, url}]"""
     rows = []
+    LAST_SCAN["field_names"] = set()
     for gid in project_gids:
         project = get_project(gid)
         if progress:
@@ -129,6 +159,23 @@ def scan(project_gids: list, include_completed: bool = False, progress=None) -> 
                 "url": t.get("permalink_url") or "",
             })
     return rows
+
+
+def missing_field_warnings(rows: list) -> list:
+    """Поле не нашлось ни в одной задаче → предупреждение со списком реальных имён.
+    Это отличает «люди не заполнили» от «поле называется иначе»."""
+    warnings = []
+    for field in (config.FIELD_A, config.FIELD_B):
+        want = norm_name(field)
+        seen = any(want == norm_name(n) or want in norm_name(n)
+                   for n in LAST_SCAN["field_names"])
+        if rows and not seen:
+            similar = sorted(n for n in LAST_SCAN["field_names"]
+                             if "fd" in norm_name(n))[:8]
+            hint = f" Похожие поля в проекте: {', '.join(similar)}" if similar else ""
+            warnings.append(f"⚠ Поле «{field}» не найдено ни в одной задаче — "
+                            f"проверьте имя в config.py.{hint}")
+    return warnings
 
 
 def counts(rows: list) -> dict:
@@ -167,6 +214,8 @@ def main():
     gids = [g.strip() for g in args.projects.split(",") if g.strip()]
     rows = scan(gids, include_completed=args.completed, progress=lambda t: print(t))
     c = counts(rows)
+    for warn in missing_field_warnings(rows):
+        print(warn)
     print(f"\nВсего задач: {len(rows)} · оба заполнены: {c['both']} · "
           f"только одно: {c['partial']} · оба пустые: {c['none']}\n")
     print(report_text(rows, args.show))
